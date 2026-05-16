@@ -4,7 +4,7 @@ AI智能选股系统 - 完整版
 数据来源：东方财富/akshare 免费公开接口
 安全声明：本系统仅基于公开历史数据的算法评分，不构成任何投资建议。
 """
-import streamlit as st
+#import streamlit as st
 import akshare as ak
 import pandas as pd
 import numpy as np
@@ -29,7 +29,7 @@ def load_market_data():
         return pd.DataFrame()
 
 @st.cache_data(ttl=7200, show_spinner=False)
-def load_financial_data():
+#def load_financial_data():
     try:
         df = ak.stock_financial_abstract_ths(symbol="全部", indicator="按年度")
         col_map = {"code":"code","净资产收益率":"roe","净利润增长率":"profit_growth","营业收入增长率":"revenue_growth","经营现金流/营业收入":"ocf_to_rev","商誉/净资产":"goodwill_to_equity"}
@@ -80,12 +80,12 @@ if not garp_pool.empty:
     disp = garp_pool[["code","name","price","pct_chg","pe_ttm","roe","profit_growth","peg"]].copy()
     disp.columns = ["代码","简称","现价","涨跌%","PE","ROE%","净利增速%","PEG"]
     st.dataframe(disp.style.background_gradient(cmap="RdYlGn", subset=["净利增速%"]), use_container_width=True, height=400)
-else:
+#else:
     st.warning("今日暂无股票符合GARP全部六项严格条件。")
 
 st.subheader("📋 低PE股票池（PE<20）")
 low_pe = market_data[(market_data["pe_ttm"]>0)&(market_data["pe_ttm"]<20)].sort_values("pe_ttm")
-if not low_pe.empty:
+#if not low_pe.empty:
     st.success(f"共筛选出 {len(low_pe)} 只PE<20的股票")
     disp2 = low_pe[["code","name","price","pct_chg","pe_ttm","pb","turnover"]].head(100)
     disp2.columns = ["代码","简称","现价","涨跌%","PE","PB","换手率%"]
