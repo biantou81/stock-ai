@@ -1,4 +1,4 @@
 streamlit
-akshare==1.18.0
+
 pandas
 numpy
