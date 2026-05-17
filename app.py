@@ -256,8 +256,7 @@ def generate_recommendation(market_df, fin_df):
     for i, (_, row) in enumerate(low_pe.iterrows()):
         reply += generate_stock_card(row, i)
     reply += "⚠️ 以上仅为客观筛选，不构成投资建议。"
-    return reply
-raw = load_market_data()
+    return replyraw = load_market_data()
 market = process_market(raw) if raw else pd.DataFrame()
 fin_data = get_financial_data()
 flows = get_money_flow()
