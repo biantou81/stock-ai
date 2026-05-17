@@ -129,8 +129,7 @@ def get_news():
     except:
         pass
     return news_list[:15]
-
-def market_sentiment(market_df):
+    def market_sentiment(market_df):
     if market_df.empty:
         return "未知"
     limit_up = int((market_df["涨跌幅"] >= 9.9).sum())
@@ -219,29 +218,21 @@ def analyst_report(stock):
     return reports
 
 def ai_understand(text, market_df=None):
-    text = str(text).strip().lower()
+    text = str(text).strip()
     if market_df is not None and not market_df.empty:
-        clean = text.replace(" ", "").replace("分析", "").replace("怎么样", "").replace("如何", "").replace("？", "").replace("?", "").replace("下周", "").replace("明天", "").replace("走势", "").replace("预期", "").replace("表现", "").strip()
-        if len(clean) >= 2:
-            cm = market_df[market_df["代码"].astype(str).str.strip().str.contains(clean, na=False)]
-            nm = market_df[market_df["名称"].astype(str).str.strip().str.contains(clean, na=False)]
-            if not cm.empty:
-                return "stock_query", cm.iloc[0].to_dict()
-            if not nm.empty:
-                return "stock_query", nm.iloc[0].to_dict()
-    intent_map = {
-        "market": ["大盘", "行情", "市场", "走势", "指数", "今日大盘"],
-        "hot": ["热点", "板块", "主力买", "资金流", "领涨"],
-        "recommend": ["推荐", "潜力", "选股", "好股票", "值得买", "机会", "布局"],
-        "monster": ["妖股", "涨停板", "打板", "连板"],
-        "analyze": ["分析", "诊断", "怎么看", "评价", "前景"],
-        "stoploss": ["止损", "止盈", "目标价"],
-        "review": ["复盘", "总结", "回顾", "帮我复盘"],
-        "compare": ["对比", "比较", "哪个好"],
-        "advice": ["建议", "操作", "怎么操作", "明天", "接下来"],
-        "today_rec": ["今日推荐", "今天买什么", "今日最优"]
+        for _, row in market_df.iterrows():
+            code = str(row["代码"])
+            name = str(row["名称"])
+            if code in text or name in text:
+                return "stock_query", row.to_dict()
+    kw_map = {
+        "market": ["大盘", "行情", "市场", "走势"],
+        "recommend": ["推荐", "潜力", "选股", "好股票", "机会"],
+        "monster": ["妖股", "涨停板", "打板"],
+        "review": ["复盘", "总结", "回顾"],
+        "today_rec": ["今日推荐", "今天买什么"]
     }
-    for intent, kws in intent_map.items():
+    for intent, kws in kw_map.items():
         for kw in kws:
             if kw in text:
                 return intent, None
@@ -256,11 +247,11 @@ def today_top_picks(market_df, flows):
     df.loc[df["涨跌幅"] > 0, "score"] += 15
     df.loc[df["换手率"] > 5, "score"] += 15
     if flows:
-        hot_sectors = [f["板块"] for f in flows[:5]]
-        for s in hot_sectors:
+        hot = [f["板块"] for f in flows[:5]]
+        for s in hot:
             df.loc[df["名称"].str.contains(s, na=False), "score"] += 20
     df.loc[df["涨跌幅"] >= 9.5, "score"] += 25
-    return df.sort_values("score", ascending=False).head(3)
+    return df.sort_values("score", ascending=False).head(5)
 
 def generate_stock_card(stock, rank=0):
     name = stock.get("名称", "")
@@ -279,7 +270,7 @@ def generate_stock_card(stock, rank=0):
     if pct >= 9.5:
         reasons.append("涨停")
     reason_str = "、".join(reasons) if reasons else "综合评分优秀"
-    medal = "1" if rank == 0 else "2" if rank == 1 else "3"
+    medal = "1" if rank == 0 else "2" if rank == 1 else "3" if rank == 2 else str(rank+1)
     card = f"### 第{medal}名 {name}({code})\n"
     card += f"现价：{stock.get('最新价','')} | 涨跌：{pct}% | PE：{pe:.1f} | 换手：{turnover}%\n\n"
     card += f"推荐理由：{reason_str} | 综合评分：{score:.0f}分\n\n"
@@ -290,20 +281,12 @@ def generate_stock_card(stock, rank=0):
     card += "六位分析师综合诊断：\n"
     for role, rpt in reports.items():
         card += f"• {role}：{rpt}\n"
+    price = stock.get("最新价", 0)
+    if price > 0:
+        atr = price * 0.03
+        card += f"\n止盈参考：{round(price+atr*2,2)}元 | 止损参考：{round(price-atr*1.5,2)}元\n"
     card += f"\n操作建议：{'短线可关注，设好止损' if score>60 else '观望为主，等待信号'}。\n---\n"
     return card
-
-def generate_recommendation(market_df):
-    if market_df.empty:
-        return "行情数据不可用。"
-    low_pe = market_df[(market_df["市盈率"] > 0) & (market_df["市盈率"] < 20)].sort_values("市盈率").head(5)
-    if low_pe.empty:
-        return "当前无PE<20的股票。"
-    reply = "低市盈率潜力股（Top5）：\n\n"
-    for i, (_, row) in enumerate(low_pe.iterrows()):
-        reply += generate_stock_card(row, i)
-    reply += "以上仅为客观筛选，不构成投资建议。"
-    return reply
 raw = load_market_data()
 market = process_market(raw) if raw else pd.DataFrame()
 fin_data = get_financial_data()
@@ -315,25 +298,25 @@ st.sidebar.title("AI全能选股")
 if not market_open:
     st.sidebar.warning("休市中，数据为最近交易日")
 st.sidebar.metric("市场情绪", sentiment)
-main_page = st.sidebar.radio("核心功能", ["行情总览", "选股与持仓", "AI智能分析"])
+main_page = st.sidebar.radio("核心功能", ["行情总览", "今日推荐", "AI智能分析"])
 
 if main_page == "行情总览":
     st.title("行情总览")
     if market.empty:
         st.error("行情数据不可用")
     else:
-        c1, c2, c3, c4 = st.columns(4)
-        up = int((market["涨跌幅"] > 0).sum())
-        down = int((market["涨跌幅"] < 0).sum())
-        c1.metric("上涨家数", up)
-        c2.metric("下跌家数", down)
-        c3.metric("平均涨跌", f"{market['涨跌幅'].mean():.2f}%")
-        c4.metric("低PE股票", int(len(market[(market["市盈率"] > 0) & (market["市盈率"] < 20)])))
         limit_up = int((market["涨跌幅"] >= 9.9).sum())
         limit_down = int((market["涨跌幅"] <= -9.9).sum())
-        c5, c6 = st.columns(2)
-        c5.metric("涨停家数", limit_up)
-        c6.metric("跌停家数", limit_down)
+        total_amount = market["成交额"].sum() / 1e8
+        avg_turnover = market["换手率"].mean()
+        avg_pct = market["涨跌幅"].mean()
+        c1, c2, c3 = st.columns(3)
+        c1.metric("涨停家数", limit_up)
+        c2.metric("跌停家数", limit_down)
+        c3.metric("总成交额(亿)", f"{total_amount:.0f}")
+        c4, c5 = st.columns(2)
+        c4.metric("平均换手率", f"{avg_turnover:.2f}%")
+        c5.metric("平均涨跌幅", f"{avg_pct:.2f}%")
         with st.expander("涨停跌停列表"):
             t1, t2 = st.columns(2)
             with t1:
@@ -357,7 +340,7 @@ if main_page == "行情总览":
             st.info("资金数据暂不可用")
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("龙虎榜（高换手>10%）")
+            st.subheader("龙虎榜")
             lhb = get_lhb()
             if lhb:
                 st.dataframe(pd.DataFrame(lhb), use_container_width=True, height=250)
@@ -372,65 +355,21 @@ if main_page == "行情总览":
             else:
                 st.info("暂无快讯")
 
-elif main_page == "选股与持仓":
-    tab1, tab2, tab3 = st.tabs(["GARP选股", "妖股雷达", "我的持仓"])
-    with tab1:
-        st.subheader("GARP严格筛选")
-        st.caption("PEG<1 · 净利增速>15% · PE<20 · ROE>10%")
-        if fin_data.empty:
-            st.warning("财务数据暂不可用，请开盘后刷新。")
-        elif market.empty:
-            st.error("行情数据不可用")
-        else:
-            garp = garp_filter(market, fin_data)
-            if not garp.empty:
-                st.success(f"共筛选出 {len(garp)} 只")
-                for _, row in garp.head(10).iterrows():
-                    st.write(generate_stock_card(row))
-            else:
-                st.info("暂无满足条件的股票")
-    with tab2:
-        st.subheader("妖股雷达")
-        st.caption("涨幅>9% + 换手率>15%")
-        if not market.empty:
-            m = monster_stocks(market)
-            if not m.empty:
-                st.warning(f"{len(m)}只妖股候选")
-                for _, row in m.head(10).iterrows():
-                    st.write(f"**{row['名称']}({row['代码']})** 涨幅:{row['涨跌幅']}% 换手:{row['换手率']}% PE:{row['市盈率']}")
-                    st.caption("妖股基因：涨停+高换手+高关注度 | 风险极高，严格止损")
-            else:
-                st.info("当前无妖股候选")
-    with tab3:
-        st.subheader("我的持仓")
-        code = st.text_input("添加持仓（输入代码）")
-        buy_price = st.text_input("买入价格")
-        if st.button("添加") and code:
-            st.session_state.holdings[code] = {"name": code, "buy_price": float(buy_price) if buy_price else 0}
-            st.rerun()
-        if st.session_state.holdings:
-            for c, info in list(st.session_state.holdings.items()):
-                ca, cb, cc = st.columns([3, 2, 1])
-                if not market.empty:
-                    m = market[market["代码"] == c]
-                    if not m.empty:
-                        s = m.iloc[0]
-                        delta = ""
-                        if info.get("buy_price") and info["buy_price"] > 0:
-                            chg = (s["最新价"] - info["buy_price"]) / info["buy_price"] * 100
-                            delta = f"盈亏{chg:+.2f}%"
-                        ca.write(f"{s['名称']}({c})")
-                        cb.write(f"{s['最新价']}元 {s['涨跌幅']}% {delta}")
-                    else:
-                        ca.write(c)
-                        cb.write("行情未找到")
-                else:
-                    ca.write(c)
-                if cc.button("删除", key=f"del_{c}"):
-                    del st.session_state.holdings[c]
-                    st.rerun()
-        else:
-            st.info("暂无持仓")
+elif main_page == "今日推荐":
+    st.title("今日推荐")
+    st.caption("综合估值、资金、形态、板块热度筛选")
+    picks = today_top_picks(market, flows)
+    if picks.empty:
+        st.info("当前无符合综合评分条件的股票，请开盘后刷新。")
+    else:
+        if flows:
+            st.subheader("今日热门板块")
+            hot_str = "、".join([f"{f['板块']}({f['主力净流入(亿)']}亿)" for f in flows[:5]])
+            st.write(f"**{hot_str}**")
+        st.subheader("推荐标的")
+        for i, (_, row) in enumerate(picks.iterrows()):
+            st.write(generate_stock_card(row, i))
+        st.warning("以上基于多维度综合评分，不构成投资建议。")
 
 elif main_page == "AI智能分析":
     st.title("AI智能诊断助手")
@@ -445,7 +384,7 @@ elif main_page == "AI智能分析":
         prompt = st.session_state.pending_prompt
         st.session_state.pending_prompt = None
     else:
-        prompt = st.chat_input("输入问题（如：分析茅台 / 推荐潜力股 / 今日推荐）")
+        prompt = st.chat_input("输入问题（如：分析大唐发电 / 今日推荐）")
     if st.button("清除聊天记录"):
         st.session_state.chat_history = []
         st.rerun()
@@ -480,10 +419,10 @@ elif main_page == "AI智能分析":
                     atr = price * 0.03
                     reply += f"• 短线止损参考：{round(price-atr*1.5,2)}元\n• 短线止盈参考：{round(price+atr*2,2)}元\n"
                 reply += "• 建议结合大盘情绪和板块轮动综合判断\n\n不构成投资建议。"
-            elif intent in ["today_rec", "recommend", "advice"]:
+            elif intent in ["today_rec", "recommend"]:
                 picks = today_top_picks(market, flows)
                 if not picks.empty:
-                    reply = "## 今日最优推荐（综合评分Top3）\n\n"
+                    reply = "## 今日最优推荐（综合评分Top5）\n\n"
                     if flows:
                         reply += "**今日热门板块**：" + "、".join([f["板块"] for f in flows[:3]]) + "\n\n"
                     for i, (_, row) in enumerate(picks.iterrows()):
@@ -519,7 +458,7 @@ elif main_page == "AI智能分析":
                         if not mh.empty:
                             reply += f"• {mh.iloc[0]['名称']}：{mh.iloc[0]['涨跌幅']}%\n"
             else:
-                reply = "我是您的AI选股助手。您可以说：\n• 今日推荐\n• 分析茅台\n• 推荐潜力股\n• 有什么妖股"
+                reply = "我是您的AI选股助手。您可以说：\n• 今日推荐\n• 分析大唐发电\n• 推荐潜力股\n• 有什么妖股"
         st.session_state.chat_history.append({"role": "assistant", "content": reply})
         st.rerun()
 
