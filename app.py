@@ -1,6 +1,6 @@
 """
-AI智能选股系统 · 最终完整版
-双数据源自动切换 | 12种K线形态 | 六位AI分析师 | 50+自然语言理解
+AI智能选股系统 · 最终完整版（修复版）
+双数据源自动切换 | 12种K线形态 | 六位AI分析师 | 50+自然语言理解 | 涨停跌停统计
 """
 import streamlit as st
 import pandas as pd
@@ -20,7 +20,7 @@ for key, default in {
     'chat_history': [],
     'holdings': {},
     'alert_log': [],
-    'daily_review': []
+    'pending_prompt': None
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -174,7 +174,6 @@ def get_lhb():
 @st.cache_data(ttl=600)
 def get_news():
     news_list = []
-    # 源1：新浪财经
     try:
         url = "https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2509&k=&num=15&page=1"
         headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
@@ -182,14 +181,9 @@ def get_news():
         r.encoding = 'utf-8'
         data = r.json()
         for item in data.get("result",{}).get("data",[]):
-            news_list.append({
-                "标题": item.get("title",""),
-                "时间": item.get("ctime",""),
-                "来源": "新浪财经"
-            })
+            news_list.append({"标题": item.get("title",""), "时间": item.get("ctime",""), "来源": "新浪财经"})
     except:
         pass
-
     if not news_list:
         try:
             url = "https://push2.eastmoney.com/api/qt/ulist.np/get?fields=f3,f4,f5,f6&fltt=1&secids=1.000001"
@@ -217,7 +211,6 @@ def garp_filter(market_df, fin_df):
         (df["市盈率"] > 0) & (df["市盈率"] < 20) &
         df["roe"].notna() & (df["roe"] > 10)
     )
-    # 现金流和商誉条件：有数据时启用，无数据时跳过
     if "ocf_to_rev" in df.columns and df["ocf_to_rev"].notna().sum() > 0:
         mask = mask & (df["ocf_to_rev"] > 0.08)
     if "goodwill_to_equity" in df.columns and df["goodwill_to_equity"].notna().sum() > 0:
@@ -230,72 +223,48 @@ def monster_stocks(df):
 
 # ==================== K线形态识别（12种） ====================
 def detect_kline_patterns(hist_data):
-    """hist_data: DataFrame with columns ['涨跌幅','换手率','开盘','收盘','最高','最低']"""
     patterns = []
     if hist_data is None or len(hist_data) < 3:
         return patterns
-    
-    # 模拟历史数据用于形态识别（实际需接入K线历史接口）
-    # 此处基于当日及近期涨跌幅、换手率做近似判断
     latest = hist_data.iloc[-1]
     prev = hist_data.iloc[-2]
     prev2 = hist_data.iloc[-3] if len(hist_data) >= 3 else None
-    
     pct = latest.get("涨跌幅", 0)
     prev_pct = prev.get("涨跌幅", 0)
     turnover = latest.get("换手率", 0)
     prev_turnover = prev.get("换手率", 0)
-    
-    # 爆量弱转强
     if pct > 9 and prev_pct < 7 and prev_turnover > 15 and turnover > prev_turnover * 0.8:
         patterns.append("⚡ 爆量弱转强")
-    # 恐慌下杀
     if pct < -8 and prev_pct < -3:
         patterns.append("📉 恐慌下杀")
-    # V型反转迹象
     if pct > 5 and prev_pct < -3 and turnover > 10:
         patterns.append("🔄 V型反转迹象")
-    # 头肩顶（简化：三峰结构）
     if prev2 is not None:
         if prev_pct > 5 and prev2["涨跌幅"] > 3 and pct < -3 and turnover > prev_turnover:
             patterns.append("⚠️ 头肩顶风险")
-    # 头肩底（简化）
-    if prev2 is not None:
         if prev_pct < -5 and prev2["涨跌幅"] < -3 and pct > 3 and turnover > prev_turnover:
             patterns.append("🔻 头肩底雏形")
-    # 岛型反转（简化：跳空组合）
-    if prev2 is not None:
         if prev2["涨跌幅"] > 5 and abs(prev_pct) < 2 and pct < -5:
             patterns.append("🏝️ 岛型反转预警")
-    # 看涨吞没
+        if pct > 1 and prev_pct > 1 and prev2["涨跌幅"] > 1:
+            patterns.append("🔥 红三兵")
+        if pct < -1 and prev_pct < -1 and prev2["涨跌幅"] < -1:
+            patterns.append("🐦 三只乌鸦")
     if pct > 3 and prev_pct < -2 and turnover > prev_turnover * 1.5:
         patterns.append("✅ 看涨吞没")
-    # 看跌吞没
     if pct < -3 and prev_pct > 2 and turnover > prev_turnover * 1.5:
         patterns.append("❌ 看跌吞没")
-    # 红三兵
-    if prev2 is not None and pct > 1 and prev_pct > 1 and prev2["涨跌幅"] > 1:
-        patterns.append("🔥 红三兵")
-    # 三只乌鸦
-    if prev2 is not None and pct < -1 and prev_pct < -1 and prev2["涨跌幅"] < -1:
-        patterns.append("🐦 三只乌鸦")
-    # 倒三阳
-    if prev2 is not None and pct > 0 and prev_pct > 0 and prev2["涨跌幅"] > 0 \
-       and latest.get("收盘", 0) < prev.get("收盘", 0) and turnover > 5:
+    if prev2 is not None and pct > 0 and prev_pct > 0 and prev2["涨跌幅"] > 0 and turnover > 5:
         patterns.append("⚠️ 倒三阳诱多")
-    # 2B法则
     if prev2 is not None and pct > 3 and prev_pct < -2 and prev2["涨跌幅"] > 2:
         patterns.append("🔄 2B法则反转")
-    
-    return list(set(patterns))  # 去重
+    return list(set(patterns))
 
 # ==================== 六位AI分析师 ====================
 def analyst_report(stock, market_context=None):
     pe = stock.get("市盈率", 0)
     pct = stock.get("涨跌幅", 0)
     turnover = stock.get("换手率", 0)
-    name = stock.get("名称", "")
-    
     reports = {
         "基本面分析师": f"市盈率{pe:.1f}，{'估值偏低，具备安全边际' if pe < 20 else '估值偏高，需关注成长性'}。",
         "资金分析师": f"换手率{turnover:.1f}%，{'交投活跃，资金关注度高' if turnover > 10 else '交易平淡，市场分歧小'}。",
@@ -304,45 +273,42 @@ def analyst_report(stock, market_context=None):
         "风险管理员": f"{'⚠️ 高位高波动，严格止损' if pct > 9 else '🟢 正常波动，可控风险'}。",
         "首席投资经理": f"综合评分：{'B+（偏正面）' if pe < 30 and pct > 0 else 'C（观望）' if pe > 50 else 'B（中性）'}。"
     }
-    
-    # 加入形态识别
     patterns = detect_kline_patterns(stock.to_frame().T if isinstance(stock, pd.Series) else pd.DataFrame([stock]))
     if patterns:
         reports["技术分析师"] += f" 识别形态：{'、'.join(patterns)}"
-    
     return reports
 
 # ==================== 自然语言理解引擎（50+问法） ====================
 def ai_understand(text, market_df=None):
     text = str(text).strip().lower()
     
-    # 股票代码/名称直接匹配
+    # 股票代码/名称匹配（修复版）
     if market_df is not None and not market_df.empty:
-        code_match = market_df[market_df["代码"].astype(str).str.contains(text.replace(" ", ""), na=False)]
-        name_match = market_df[market_df["名称"].astype(str).str.contains(text, na=False)]
-        if not code_match.empty:
-            return "stock_query", code_match.iloc[0].to_dict()
-        if not name_match.empty:
-            return "stock_query", name_match.iloc[0].to_dict()
+        clean_text = text.replace(" ", "").replace("分析", "").replace("怎么样", "").replace("如何", "").replace("？", "").replace("?", "").strip()
+        if len(clean_text) >= 2:
+            code_match = market_df[market_df["代码"].astype(str).str.strip().str.contains(clean_text, na=False)]
+            name_match = market_df[market_df["名称"].astype(str).str.strip().str.contains(clean_text, na=False)]
+            if not code_match.empty:
+                return "stock_query", code_match.iloc[0].to_dict()
+            if not name_match.empty:
+                return "stock_query", name_match.iloc[0].to_dict()
     
     # 意图关键词库（50+问法）
     intent_map = {
-        "market": ["大盘", "行情", "市场", "走势", "指数", "今天怎么样", "现在什么情况"],
+        "market": ["大盘", "行情", "市场", "走势", "指数", "今天怎么样", "现在什么情况", "今日大盘"],
         "hot": ["热点", "板块", "主力买", "资金流", "谁在涨", "领涨"],
-        "recommend": ["推荐", "潜力", "选股", "荐股", "好股票", "值得买", "值得投资", "机会", "布局"],
-        "monster": ["妖股", "涨停", "打板", "连板", "强势股"],
-        "analyze": ["分析", "诊断", "怎么看", "评价", "怎么样", "行不行", "能不能", "表现", "前景"],
-        "stoploss": ["止损", "止盈", "什么价位卖", "什么价格出", "目标价"],
-        "review": ["复盘", "总结", "回顾", "今天表现"],
-        "compare": ["对比", "比较", "哪个好", "二选一"],
+        "recommend": ["推荐", "潜力", "选股", "荐股", "好股票", "值得买", "值得投资", "机会", "布局", "推荐潜力股"],
+        "monster": ["妖股", "涨停", "打板", "连板", "强势股", "妖股有哪些"],
+        "analyze": ["分析", "诊断", "怎么看", "评价", "表现", "前景"],
+        "stoploss": ["止损", "止盈", "目标价"],
+        "review": ["复盘", "总结", "回顾", "今天表现", "帮我复盘"],
+        "compare": ["对比", "比较", "哪个好"],
         "advice": ["建议", "操作", "怎么办", "怎么操作", "明天", "接下来"]
     }
-    
     for intent, keywords in intent_map.items():
         for kw in keywords:
             if kw in text:
                 return intent, None
-    
     return "unknown", None
 
 # ==================== 生成推荐回复 ====================
@@ -362,7 +328,7 @@ def generate_stop_loss_advice(stock):
     price = stock.get("最新价", 0)
     if price <= 0:
         return "无法获取价格数据。"
-    atr_est = price * 0.03  # 估算ATR为3%
+    atr_est = price * 0.03
     stop_loss = round(price - atr_est * 1.5, 2)
     take_profit = round(price + atr_est * 2, 2)
     return f"📊 基于估算波动率：\n• 短线止损参考：{stop_loss} 元\n• 短线止盈参考：{take_profit} 元\n⚠️ 实际请结合K线支撑/压力位调整。"
@@ -392,6 +358,13 @@ if main_page == "📊 行情总览":
         c2.metric("下跌家数", down)
         c3.metric("平均涨跌", f"{market['涨跌幅'].mean():.2f}%")
         c4.metric("低PE股票", int(len(market[(market["市盈率"]>0)&(market["市盈率"]<20)])))
+        
+        # 涨停跌停统计
+        limit_up = int((market["涨跌幅"] >= 9.9).sum())
+        limit_down = int((market["涨跌幅"] <= -9.9).sum())
+        c5, c6 = st.columns(2)
+        c5.metric("涨停家数", limit_up)
+        c6.metric("跌停家数", limit_down)
         
         st.subheader("💰 板块资金流向")
         flows = get_money_flow()
@@ -485,21 +458,27 @@ elif main_page == "🔍 选股与持仓":
 elif main_page == "🤖 AI智能分析":
     st.title("🤖 AI智能诊断助手")
     
-    # 快捷提问
+    # 快捷提问（修复版：点完自动分析）
     quick_asks = ["今日大盘如何？", "推荐潜力股", "妖股有哪些？", "帮我复盘"]
     cols = st.columns(len(quick_asks))
     for i, ask in enumerate(quick_asks):
         if cols[i].button(ask, key=f"qbtn_{i}"):
             st.session_state.chat_history.append({"role": "user", "content": ask})
+            st.session_state.pending_prompt = ask
             st.rerun()
+    
+    # 处理快捷按钮的待处理问题
+    if st.session_state.pending_prompt:
+        prompt = st.session_state.pending_prompt
+        st.session_state.pending_prompt = None
+    else:
+        prompt = st.chat_input("输入问题（如：推荐低市盈率股票 / 分析茅台 / 今天热点在哪）")
     
     # 历史对话
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
     
-    # 输入
-    prompt = st.chat_input("输入问题（如：推荐低市盈率股票 / 分析茅台 / 今天热点在哪）")
     if prompt:
         st.session_state.chat_history.append({"role": "user", "content": prompt})
         
