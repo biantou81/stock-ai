@@ -1,6 +1,6 @@
 """
-AI智能选股系统 · 最终完整版（主动优化版）
-双数据源 | 12种K线形态 | 六位AI分析师 | 50+自然语言理解 | 情绪温度计 | 今日机会信号
+AI智能选股系统 · 最终完整版
+双数据源 | 12种K线形态 | 六位AI分析师 | 50+自然语言 | 情绪温度计 | 今日机会信号
 """
 import streamlit as st
 import pandas as pd
@@ -127,7 +127,6 @@ def get_news():
         except: pass
     return news_list[:15]
 
-# 市场情绪温度计
 def market_sentiment(market_df):
     if market_df.empty: return "未知", 0
     limit_up = int((market_df["涨跌幅"] >= 9.9).sum())
@@ -214,9 +213,8 @@ def ai_understand(text, market_df=None):
             if kw in text: return intent, None
     return "unknown", None
 
-# 综合评分推荐（五维打分）
 def today_top_picks(market_df, fin_df, flows):
-    if market_df.empty: return []
+    if market_df.empty: return pd.DataFrame()
     df = market_df.copy()
     df["score"] = 0.0
     df.loc[(df["市盈率"]>0)&(df["市盈率"]<25), "score"] += 25
@@ -231,25 +229,23 @@ def today_top_picks(market_df, fin_df, flows):
 def generate_stock_card(stock, rank=0):
     name = stock.get("名称",""); code = stock.get("代码","")
     pe = stock.get("市盈率",0); pct = stock.get("涨跌幅",0)
-    turnover = stock.get("换手率",0)
-    score = stock.get("score",0)
+    turnover = stock.get("换手率",0); score = stock.get("score",0)
     reasons = []
     if pe < 20: reasons.append("低估值")
     if pct > 5: reasons.append("今日强势")
     if turnover > 10: reasons.append("交投活跃")
     if pct >= 9.5: reasons.append("涨停")
     reason_str = "、".join(reasons) if reasons else "综合评分优秀"
-    card = f"### {'🥇' if rank==0 else '🥈' if rank==1 else '🥉'} {name}({code})\n"
+    medal = "🥇" if rank==0 else "🥈" if rank==1 else "🥉"
+    card = f"### {medal} {name}({code})\n"
     card += f"现价：{stock.get('最新价','')} | 涨跌：{pct}% | PE：{pe:.1f} | 换手：{turnover}%\n\n"
     card += f"**推荐理由**：{reason_str} | 综合评分：{score:.0f}分\n\n"
     patterns = detect_kline_patterns(pd.DataFrame([stock]))
     if patterns: card += f"**技术形态**：{'、'.join(patterns)}\n\n"
     reports = analyst_report(stock)
-    card += f"**六位分析师综合诊断**：\n"
-    for role, rpt in reports.items():
-        card += f"• {role}：{rpt}\n"
-    card += f"\n**操作建议**：{'短线可关注，设好止损' if score>60 else '观望为主，等待更明确信号'}。\n"
-    card += "---\n"
+    card += "**六位分析师综合诊断**：\n"
+    for role, rpt in reports.items(): card += f"• {role}：{rpt}\n"
+    card += f"\n**操作建议**：{'短线可关注，设好止损' if score>60 else '观望为主，等待更明确信号'}。\n---\n"
     return card
 
 def generate_recommendation(market_df, fin_df):
@@ -335,7 +331,7 @@ elif main_page == "🔍 选股与持仓":
                 st.warning(f"⚠️ {len(m)}只妖股候选")
                 for _, row in m.head(10).iterrows():
                     st.write(f"🦅 **{row['名称']}({row['代码']}**) 涨幅:{row['涨跌幅']}% 换手:{row['换手率']}% PE:{row['市盈率']}")
-                    st.caption(f"妖股基因：涨停+高换手+高关注度 | 风险极高，严格止损")
+                    st.caption("妖股基因：涨停+高换手+高关注度 | 风险极高，严格止损")
             else: st.info("当前无妖股候选")
     with tab3:
         st.subheader("我的持仓")
@@ -371,11 +367,9 @@ elif main_page == "🤖 AI智能分析":
         prompt = st.session_state.pending_prompt; st.session_state.pending_prompt = None
     else: prompt = st.chat_input("输入问题（如：分析茅台 / 推荐潜力股 / 今日推荐）")
     
-    # 清除按钮
     if st.button("🗑️ 清除聊天记录"):
         st.session_state.chat_history = []; st.rerun()
     
-    # 折叠显示
     display_count = 5 if not st.session_state.get('show_all_chat',False) else len(st.session_state.chat_history)
     for msg in st.session_state.chat_history[-display_count:]:
         with st.chat_message(msg["role"]): st.write(msg["content"])
