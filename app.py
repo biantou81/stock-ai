@@ -98,7 +98,7 @@ def get_lhb():
         result = []
         for i in data.get("data",{}).get("diff",[]):
             try:
-             t = float(i.get("f8",0) or 0)
+            t = float(i.get("f8",0) or 0)
                 if t > 10: result.append({"代码":i.get("f12",""),"名称":i.get("f14",""),"涨跌幅":i.get("f3",""),"换手率":t,"市盈率":i.get("f9",""),"成交额(亿)":round(float(i.get("f20",0) or 0)/1e8,2)})
             except: continue
         return result
