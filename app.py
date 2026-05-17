@@ -454,7 +454,7 @@ elif main_page == "🤖 AI智能分析":
                     if flows: reply += "**今日热门板块**：" + "、".join([f["板块"] for f in flows[:3]]) + "\n\n"
                     for i, (_, row) in enumerate(picks.iterrows()): reply += generate_stock_card(row, i)
                     reply += "⚠️ 以上基于多维度综合评分，不构成投资建议。"
-                else: reply = "当前无符合综合评分条件的股票。"
+            else: reply = "当前无符合综合评分条件的股票。"
             elif intent == "market":
                 up = int((market["涨跌幅"]>0).sum())
                 down = int((market["涨跌幅"]<0).sum())
