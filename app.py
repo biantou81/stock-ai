@@ -256,6 +256,12 @@ def generate_stock_card(stock, rank=0):
     for role, rpt in reports.items(): card += f"• {role}：{rpt}\n"
     card += f"\n**操作建议**：{'短线可关注，设好止损' if score>60 else '观望为主，等待更明确信号'}。\n---\n"
     return card
+        raw = load_market_data()
+market = process_market(raw) if raw else pd.DataFrame()
+fin_data = get_financial_data()
+flows = get_money_flow()
+market_open = is_market_open()
+sentiment, sentiment_score = market_sentiment(market)
 
 def generate_recommendation(market_df, fin_df):
     if market_df.empty: return "行情数据不可用。"
@@ -266,12 +272,7 @@ def generate_recommendation(market_df, fin_df):
         reply += generate_stock_card(row, i)
     reply += "⚠️ 以上仅为客观筛选，不构成投资建议。"
     return reply
-    raw = load_market_data()
-market = process_market(raw) if raw else pd.DataFrame()
-fin_data = get_financial_data()
-flows = get_money_flow()
-market_open = is_market_open()
-sentiment, sentiment_score = market_sentiment(market)
+
 
 st.sidebar.title("📈 AI全能选股")
 if not market_open:
