@@ -138,7 +138,7 @@ def market_sentiment(market_df):
     elif ratio >= 1: return "🟢 正常", 50
     elif ratio >= 0.5: return "🔵 偏冷", 30
     else: return "❄️ 冰点", 15
-        def garp_filter(market_df, fin_df):
+    def garp_filter(market_df, fin_df):
     if market_df.empty or fin_df.empty: return pd.DataFrame()
     df = pd.merge(market_df, fin_df, left_on="代码", right_on="code", how="left")
     for c in ["roe","profit_growth","ocf_to_rev","goodwill_to_equity"]:
@@ -233,7 +233,7 @@ def generate_stock_card(stock, rank=0):
     reasons = []
     if pe < 20: reasons.append("低估值")
     if pct > 5: reasons.append("今日强势")
-    if turnover > 10: reasons.append("交投活跃")
+if turnover > 10: reasons.append("交投活跃")
     if pct >= 9.5: reasons.append("涨停")
     reason_str = "、".join(reasons) if reasons else "综合评分优秀"
     medal = "🥇" if rank==0 else "🥈" if rank==1 else "🥉"
