@@ -129,7 +129,7 @@ def get_news():
     except:
         pass
     return news_list[:15]
-    def market_sentiment(market_df):
+def market_sentiment(market_df):
     if market_df.empty:
         return "未知"
     limit_up = int((market_df["涨跌幅"] >= 9.9).sum())
