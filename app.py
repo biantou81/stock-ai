@@ -110,8 +110,8 @@ if not stocks:
                     "turnoverratio": s.get("f8", 0),
                     "amount": s.get("f20", 0)
                 })
-        except:
-            pass
+    except:
+        pass
     return stocks
 
 def process_market(raw):
