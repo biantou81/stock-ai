@@ -65,14 +65,51 @@ def load_market_data():
         except:
             continue
     if not stocks:
+    try:
+        # 备用源：东方财富实时接口 (盘中优先)
+        url = "https://push2.eastmoney.com/api/qt/clist/get"
+        params = {
+            "pn":"1","pz":"5000","po":"1","np":"1",
+            "fltt":"2","invt":"2","fid":"f3",
+            "fs":"m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
+            "fields":"f2,f3,f9,f12,f14,f20,f23,f8"
+        }
+        headers = {"User-Agent":"Mozilla/5.0","Referer":"https://data.eastmoney.com/"}
+        r = requests.get(url, params=params, headers=headers, timeout=15)
+        data = r.json()
+        stocks_raw = data.get("data", {}).get("diff", [])
+        
+        # 关键检查点：如果拉取的数据少于1000条，说明接口降级了
+        if len(stocks_raw) < 1000:
+            raise Exception("Insufficient data, trying fallback")
+            
+        for s in stocks_raw:
+            stocks.append({...}) # 此处的代码复制原样
+    except:
+        # 新增：盘后专用全量接口
         try:
             url = "https://push2.eastmoney.com/api/qt/clist/get"
-            params = {"pn":"1","pz":"5000","po":"1","np":"1","fltt":"2","invt":"2","fid":"f3","fs":"m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23","fields":"f2,f3,f9,f12,f14,f20,f23,f8"}
-            headers = {"User-Agent":"Mozilla/5.0","Referer":"https://data.eastmoney.com/"}
+            params = {
+                "pn":"1","pz":"6000","po":"1","np":"1",
+                "fltt":"2","invt":"2",
+                "fs":"m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
+                "fields":"f2,f3,f9,f12,f14,f15,f16,f17,f18,f20,f23,f8"
+            }
+            headers = {"User-Agent":"Mozilla/5.0"}
             r = requests.get(url, params=params, headers=headers, timeout=15)
             data = r.json()
-            for s in data.get("data",{}).get("diff",[]):
-                stocks.append({"symbol":s.get("f12",""),"name":s.get("f14",""),"trade":s.get("f2",0),"changepercent":s.get("f3",0),"per":s.get("f9",0),"pb":s.get("f23",0),"turnoverratio":s.get("f8",0),"amount":s.get("f20",0)})
+            stocks_raw = data.get("data", {}).get("diff", [])
+            for s in stocks_raw:
+                stocks.append({
+                    "symbol": s.get("f12", ""),
+                    "name": s.get("f14", ""),
+                    "trade": s.get("f2", 0),
+                    "changepercent": s.get("f3", 0),
+                    "per": s.get("f9", 0),
+                    "pb": s.get("f23", 0),
+                    "turnoverratio": s.get("f8", 0),
+                    "amount": s.get("f20", 0)
+                })
         except:
             pass
     return stocks
