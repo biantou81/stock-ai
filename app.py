@@ -9,10 +9,12 @@ import requests
 import time
 import random
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
+
 os.environ['TZ'] = 'Asia/Shanghai'
 time.tzset()
+
 st.set_page_config(page_title="AI选股·全能版", page_icon="📈", layout="wide")
 
 for key, default in {
@@ -316,8 +318,6 @@ def holding_diagnosis(stock, buy_price):
     name = stock.get("名称", "")
     code = stock.get("代码", "")
     current = stock.get("最新价", 0)
-    pct = stock.get("涨跌幅", 0)
-    pe = stock.get("市盈率", 0)
     if current <= 0 or buy_price <= 0:
         return "数据异常，无法诊断。"
     chg = (current - buy_price) / buy_price * 100
@@ -600,5 +600,5 @@ st.sidebar.caption(f"行情数据：{'✅ 正常' if not market.empty else '❌ 
 st.sidebar.caption(f"资金数据：{'✅ 正常' if flows else '❌ 获取失败'}")
 st.sidebar.caption(f"新闻数据：{'✅ 正常' if get_news() else '❌ 获取失败'}")
 st.sidebar.caption(f"开盘状态：{'🟢 交易中' if market_open else '🔴 休市'}")
-st.sidebar.caption(f"数据源：新浪/东方财富双备")
+st.sidebar.caption("数据源：新浪/东方财富双备")
 st.sidebar.error("风险声明：仅基于公开数据客观筛选，不构成投资建议。")
