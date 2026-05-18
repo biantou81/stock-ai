@@ -1,6 +1,6 @@
 """
-AI智能选股系统 · 最终稳定版
-三源冗余数据获取 | 全量分页拉取 | 智能降级 | 六位AI分析师
+AI智能选股系统 · 稳定版
+AkShare主通道 | 腾讯财经备通道 | 六位AI分析师 | 三层筛选架构
 """
 import streamlit as st
 import pandas as pd
@@ -43,168 +43,112 @@ def is_market_open():
         return False
     return True
 
-# ---------- 通用请求头 ----------
-def get_headers():
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-    ]
-    return {
-        "User-Agent": random.choice(user_agents),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate",
-        "Connection": "keep-alive"
-    }
-
-# ---------- 高可靠三源数据引擎 ----------
 @st.cache_data(ttl=600, show_spinner="正在获取全量行情数据...")
 def load_market_data():
-    all_stocks = []
-
-    # ===== 主源：腾讯财经（全量，稳定） =====
+    # 主通道：AkShare
     try:
-        url = "http://qt.gtimg.cn/q=r_hsa"
-        headers = get_headers()
-        r = requests.get(url, headers=headers, timeout=20)
-        if r.status_code == 200:
-            text = r.text
-            # 腾讯返回格式：v_sh600000="1~平安银行~600000~..."
-            pattern = r'v_(s[hz]\d+)="([^"]*)"'
-            matches = re.findall(pattern, text)
-            for code, data in matches:
-                parts = data.split("~")
-                if len(parts) >= 40:
-                    try:
-                        all_stocks.append({
-                            "代码": code,
-                            "名称": parts[1] if len(parts) > 1 else "",
-                            "最新价": float(parts[3]) if parts[3] else 0,
-                            "涨跌幅": float(parts[32]) if parts[32] else 0,
-                            "市盈率": float(parts[39]) if parts[39] else 999,
-                            "换手率": float(parts[38]) if parts[38] else 0,
-                            "成交额": float(parts[37]) if parts[37] else 0,
-                            "市净率": 0
-                        })
-                    except:
-                        continue
-            if len(all_stocks) > 1000:
-                return pd.DataFrame(all_stocks)
+        import akshare as ak
+        df = ak.stock_zh_a_spot_em()
+        if df is not None and len(df) > 1000:
+            records = []
+            for _, s in df.iterrows():
+                try:
+                    pe = float(s.get('市盈率-动态', 0) or 0)
+                    if pe <= 0:
+                        pe = 999
+                    records.append({
+                        "代码": str(s.get('代码', '')),
+                        "名称": str(s.get('名称', '')),
+                        "最新价": float(s.get('最新价', 0) or 0),
+                        "涨跌幅": float(s.get('涨跌幅', 0) or 0),
+                        "市盈率": pe,
+                        "市净率": float(s.get('市净率', 0) or 0),
+                        "换手率": float(s.get('换手率', 0) or 0),
+                        "成交额": float(s.get('成交额', 0) or 0)
+                    })
+                except:
+                    continue
+            if len(records) > 1000:
+                return pd.DataFrame(records)
     except:
         pass
 
-    # ===== 备源：东方财富（分页拉取全量） =====
-    all_stocks = []
+    # 备通道：腾讯财经
     try:
-        for page in range(1, 30):
-            url = "https://push2.eastmoney.com/api/qt/clist/get"
-            params = {
-                "pn": str(page), "pz": "200", "po": "1", "np": "1",
-                "fltt": "2", "invt": "2", "fid": "f3",
-                "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
-                "fields": "f2,f3,f9,f12,f14,f20,f23,f8"
-            }
-            headers = get_headers()
-            r = requests.get(url, params=params, headers=headers, timeout=15)
-            if r.status_code != 200:
-                break
-            batch = r.json().get("data", {}).get("diff", [])
-            if not batch:
-                break
-            for s in batch:
-                all_stocks.append({
-                    "代码": s.get("f12", ""),
-                    "名称": s.get("f14", ""),
-                    "最新价": float(s.get("f2", 0) or 0),
-                    "涨跌幅": float(s.get("f3", 0) or 0),
-                    "市盈率": float(s.get("f9", 0) or 0),
-                    "换手率": float(s.get("f8", 0) or 0),
-                    "成交额": float(s.get("f20", 0) or 0),
-                    "市净率": float(s.get("f23", 0) or 0)
-                })
-            time.sleep(random.uniform(0.3, 0.6))
-        if len(all_stocks) > 1000:
-            df = pd.DataFrame(all_stocks)
-            df.loc[df["市盈率"] <= 0, "市盈率"] = 999
-            return df
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        r = requests.get('http://qt.gtimg.cn/q=r_hs_a', headers=headers, timeout=15)
+        pattern = r'v_(s[hz]\d+)="([^"]*)"'
+        matches = re.findall(pattern, r.text)
+        records = []
+        for code, data in matches:
+            parts = data.split('~')
+            if len(parts) >= 40:
+                try:
+                    pe = float(parts[39]) if parts[39] else 999
+                    if pe <= 0:
+                        pe = 999
+                    records.append({
+                        "代码": code,
+                        "名称": parts[1],
+                        "最新价": float(parts[3]) if parts[3] else 0,
+                        "涨跌幅": float(parts[32]) if parts[32] else 0,
+                        "市盈率": pe,
+                        "换手率": float(parts[38]) if parts[38] else 0,
+                        "成交额": float(parts[37]) if parts[37] else 0,
+                        "市净率": 0
+                    })
+                except:
+                    continue
+        if len(records) > 1000:
+            return pd.DataFrame(records)
     except:
         pass
 
-    # ===== 兜底：返回空DataFrame =====
     return pd.DataFrame()
 
-# ---------- 资金流向（新浪独立通道 + 东方财富备源） ----------
 @st.cache_data(ttl=300)
 def get_money_flow():
-    # 主源：东方财富（加入重试）
-    for attempt in range(2):
-        try:
-            time.sleep(random.uniform(0.5, 1.0))
-            url = "https://push2.eastmoney.com/api/qt/clist/get"
-            params = {
-                "pn": "1", "pz": "30", "po": "1", "np": "1",
-                "fltt": "2", "invt": "2", "fid": "f62",
-                "fs": "m:90+t:2",
-                "fields": "f12,f14,f62"
-            }
-            headers = get_headers()
-            r = requests.get(url, params=params, headers=headers, timeout=15)
-            if r.status_code == 200:
-                data = r.json()
-                items = data.get("data", {}).get("diff", [])
-                if items:
-                    result = []
-                    for i in items:
-                        result.append({
-                            "板块": i.get("f14", ""),
-                            "主力净流入(亿)": round(float(i.get("f62", 0) or 0) / 1e8, 2)
-                        })
-                    return result
-        except:
-            time.sleep(2)
+    try:
+        import akshare as ak
+        df = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业板块")
+        if df is not None and len(df) > 0:
+            result = []
+            for _, row in df.head(20).iterrows():
+                result.append({
+                    "板块": str(row['名称']),
+                    "主力净流入(亿)": round(float(row['主力净流入']) / 1e8, 2)
+                })
+            return result
+    except:
+        pass
     return []
 
-# ---------- 龙虎榜 ----------
 @st.cache_data(ttl=1800)
 def get_lhb():
     try:
-        url = "https://push2.eastmoney.com/api/qt/clist/get"
-        params = {
-            "pn": "1", "pz": "50", "po": "1", "np": "1",
-            "fltt": "2", "invt": "2", "fid": "f8",
-            "fs": "m:0+t:6",
-            "fields": "f12,f14,f3,f8,f9,f20"
-        }
-        headers = get_headers()
-        r = requests.get(url, params=params, headers=headers, timeout=10)
-        data = r.json()
-        result = []
-        for i in data.get("data", {}).get("diff", []):
-            try:
-                t = float(i.get("f8", 0) or 0)
-                if t > 10:
-                    result.append({
-                        "代码": i.get("f12", ""),
-                        "名称": i.get("f14", ""),
-                        "涨跌幅": i.get("f3", ""),
-                        "换手率": t,
-                        "市盈率": i.get("f9", ""),
-                        "成交额(亿)": round(float(i.get("f20", 0) or 0) / 1e8, 2)
-                    })
-            except:
-                continue
-        return result
+        import akshare as ak
+        df = ak.stock_lhb_detail_em(date=get_beijing_time().strftime('%Y%m%d'))
+        if df is not None and len(df) > 0:
+            result = []
+            for _, row in df.head(30).iterrows():
+                result.append({
+                    "代码": str(row.get('代码', '')),
+                    "名称": str(row.get('名称', '')),
+                    "涨跌幅": str(row.get('涨跌幅', '')),
+                    "换手率": float(row.get('换手率', 0) or 0),
+                    "成交额(亿)": round(float(row.get('成交额', 0) or 0) / 1e8, 2)
+                })
+            return result
     except:
-        return []
+        pass
+    return []
 
-# ---------- 新闻 ----------
 @st.cache_data(ttl=600)
 def get_news():
     news_list = []
     try:
         url = "https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2509&k=&num=15&page=1"
-        headers = get_headers()
+        headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
         r = requests.get(url, headers=headers, timeout=10)
         r.encoding = 'utf-8'
         data = r.json()
@@ -214,7 +158,6 @@ def get_news():
         pass
     return news_list[:15]
 
-# ---------- 市场情绪 ----------
 def market_sentiment(market_df):
     if market_df.empty:
         return "未知"
@@ -233,14 +176,13 @@ def market_sentiment(market_df):
     else:
         return "冰点"
 
-# ---------- 财务数据 ----------
 def get_financial_data():
     try:
         url = "https://push2.eastmoney.com/api/qt/clist/get"
         params = {"pn": "1", "pz": "5000", "po": "1", "np": "1", "fltt": "2", "invt": "2",
                   "fid": "f12", "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
                   "fields": "f12,f14,f9,f23,f37,f10,f8"}
-        headers = get_headers()
+        headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://data.eastmoney.com/"}
         r = requests.get(url, params=params, headers=headers, timeout=15)
         data = r.json()
         records = []
@@ -253,8 +195,6 @@ def get_financial_data():
         return pd.DataFrame(records)
     except:
         return pd.DataFrame()
-
-# ---------- GARP筛选 ----------
 def garp_filter(market_df, fin_df):
     if market_df.empty or fin_df.empty:
         return pd.DataFrame()
@@ -264,16 +204,12 @@ def garp_filter(market_df, fin_df):
     if "profit_growth" not in df.columns:
         df["profit_growth"] = np.nan
     df["peg"] = df["市盈率"] / df["profit_growth"].replace(0, np.nan)
-    mask = (df["peg"].notna() & (df["peg"] < 1.0) & df["profit_growth"].notna() & (
-                df["profit_growth"] > 15) & (df["市盈率"] > 0) & (df["市盈率"] < 20) & df["roe"].notna() & (
-                        df["roe"] > 10))
+    mask = (df["peg"].notna() & (df["peg"] < 1.0) & df["profit_growth"].notna() & (df["profit_growth"] > 15) & (df["市盈率"] > 0) & (df["市盈率"] < 20) & df["roe"].notna() & (df["roe"] > 10))
     return df[mask].sort_values("profit_growth", ascending=False)
 
-# ---------- 妖股识别 ----------
 def monster_stocks(df):
     return df[(df["涨跌幅"] > 9) & (df["换手率"] > 15) & (df["市盈率"] < 100)].sort_values("换手率", ascending=False)
 
-# ---------- K线形态识别 ----------
 def detect_kline_patterns(hist_data):
     patterns = []
     if hist_data is None or len(hist_data) < 3:
@@ -312,25 +248,23 @@ def detect_kline_patterns(hist_data):
         patterns.append("2B法则反转")
     return list(set(patterns))
 
-# ---------- 六位AI分析师 ----------
 def analyst_report(stock):
     pe = stock.get("市盈率", 0)
     pct = stock.get("涨跌幅", 0)
     turnover = stock.get("换手率", 0)
     reports = {
-        "基本面分析师": f"PE{pe:.1f}，{'估值偏低' if pe < 20 else '估值偏高'}。",
-        "资金分析师": f"换手率{turnover:.1f}%，{'交投活跃' if turnover > 10 else '交易平淡'}。",
-        "技术分析师": f"今日{'强势上涨' if pct > 5 else '震荡整理' if abs(pct) < 3 else '弱势下跌'}。",
+        "基本面分析师": f"PE{pe:.1f}，{'估值偏低' if pe<20 else '估值偏高'}。",
+        "资金分析师": f"换手率{turnover:.1f}%，{'交投活跃' if turnover>10 else '交易平淡'}。",
+        "技术分析师": f"今日{'强势上涨' if pct>5 else '震荡整理' if abs(pct)<3 else '弱势下跌'}。",
         "宏观策略师": "建议结合大盘情绪和板块轮动判断。",
-        "风险管理员": f"{'高位风险，严格止损' if pct > 9 else '正常波动，可控风险'}。",
-        "首席投资经理": f"综合评级：{'偏正面' if pe < 30 and pct > 0 else '观望' if pe > 50 else '中性'}。"
+        "风险管理员": f"{'高位风险，严格止损' if pct>9 else '正常波动，可控风险'}。",
+        "首席投资经理": f"综合评级：{'偏正面' if pe<30 and pct>0 else '观望' if pe>50 else '中性'}。"
     }
     patterns = detect_kline_patterns(pd.DataFrame([stock]))
     if patterns:
         reports["技术分析师"] += f" 形态：{'、'.join(patterns)}"
     return reports
 
-# ---------- 自然语言理解 ----------
 def ai_understand(text, market_df=None):
     text = str(text).strip()
     if market_df is not None and not market_df.empty:
@@ -353,7 +287,6 @@ def ai_understand(text, market_df=None):
                 return intent, None
     return "unknown", None
 
-# ---------- 综合评分推荐 ----------
 def today_top_picks(market_df, flows, pool_type="all"):
     if market_df.empty:
         return pd.DataFrame()
@@ -377,7 +310,6 @@ def today_top_picks(market_df, flows, pool_type="all"):
     df.loc[df["涨跌幅"] >= 9.5, "score"] += 25
     return df.sort_values("score", ascending=False).head(3)
 
-# ---------- 个股卡片生成 ----------
 def generate_stock_card(stock, rank=0, stars=5, tag=""):
     name = stock.get("名称", "")
     code = stock.get("代码", "")
@@ -386,10 +318,14 @@ def generate_stock_card(stock, rank=0, stars=5, tag=""):
     turnover = stock.get("换手率", 0)
     score = stock.get("score", 0)
     reasons = []
-    if pe < 20: reasons.append("低估值")
-    if pct > 5: reasons.append("今日强势")
-    if turnover > 10: reasons.append("交投活跃")
-    if pct >= 9.5: reasons.append("涨停")
+    if pe < 20:
+        reasons.append("低估值")
+    if pct > 5:
+        reasons.append("今日强势")
+    if turnover > 10:
+        reasons.append("交投活跃")
+    if pct >= 9.5:
+        reasons.append("涨停")
     reason_str = "、".join(reasons) if reasons else "综合评分优秀"
     star_str = "★" * stars + "☆" * (5 - stars)
     tag_str = f" | {tag}" if tag else ""
@@ -398,18 +334,19 @@ def generate_stock_card(stock, rank=0, stars=5, tag=""):
     card += f"现价：{stock.get('最新价','')} | 涨跌：{pct}% | PE：{pe:.1f} | 换手：{turnover}%\n\n"
     card += f"**推荐理由**：{reason_str} | 综合评分：{score:.0f}分\n\n"
     patterns = detect_kline_patterns(pd.DataFrame([stock]))
-    if patterns: card += f"**技术形态**：{'、'.join(patterns)}\n\n"
+    if patterns:
+        card += f"**技术形态**：{'、'.join(patterns)}\n\n"
     reports = analyst_report(stock)
     card += "**六位分析师综合诊断**：\n"
-    for role, rpt in reports.items(): card += f"• {role}：{rpt}\n"
+    for role, rpt in reports.items():
+        card += f"• {role}：{rpt}\n"
     price = stock.get("最新价", 0)
     if price > 0:
         atr = price * 0.03
-        card += f"\n**止盈参考**：{round(price + atr * 2, 2)}元 | **止损参考**：{round(price - atr * 1.5, 2)}元\n"
-    card += f"\n**操作建议**：{'短线可关注，设好止损' if score > 60 else '观望为主，等待信号'}。\n---\n"
+        card += f"\n**止盈参考**：{round(price+atr*2,2)}元 | **止损参考**：{round(price-atr*1.5,2)}元\n"
+    card += f"\n**操作建议**：{'短线可关注，设好止损' if score>60 else '观望为主，等待信号'}。\n---\n"
     return card
 
-# ---------- 持仓诊断 ----------
 def holding_diagnosis(stock, buy_price):
     if stock is None:
         return "未找到该股票行情数据。"
@@ -421,7 +358,8 @@ def holding_diagnosis(stock, buy_price):
     reply += f"**成本**：{buy_price}元 | **现价**：{current}元 | **盈亏**：{chg:+.2f}%\n\n"
     reports = analyst_report(stock)
     reply += "**六位分析师综合诊断**：\n"
-    for role, rpt in reports.items(): reply += f"• {role}：{rpt}\n"
+    for role, rpt in reports.items():
+        reply += f"• {role}：{rpt}\n"
     if chg > 10:
         advice = "🟢 盈利可观，建议上移止损位锁定利润。"
     elif chg > 0:
@@ -432,9 +370,8 @@ def holding_diagnosis(stock, buy_price):
         advice = "🔴 亏损较大，建议严格止损。"
     reply += f"\n### 📊 操作建议\n\n**{advice}**\n\n"
     atr = current * 0.03
-    reply += f"**建议止盈**：{round(current + atr * 2, 2)}元 | **建议止损**：{round(current - atr * 1.5, 2)}元\n"
+    reply += f"**建议止盈**：{round(current+atr*2,2)}元 | **建议止损**：{round(current-atr*1.5,2)}元\n"
     return reply
-# ---------- 主程序 ----------
 raw = load_market_data()
 market = raw if not raw.empty else pd.DataFrame()
 fin_data = get_financial_data()
@@ -489,7 +426,7 @@ if main_page == "行情总览":
                 st.dataframe(pd.DataFrame(flows), use_container_width=True, height=200)
             else:
                 st.info("资金数据暂不可用")
-        with st.expander("📋 龙虎榜（高换手>10%）"):
+        with st.expander("📋 龙虎榜"):
             lhb = get_lhb()
             if lhb:
                 st.dataframe(pd.DataFrame(lhb), use_container_width=True, height=250)
@@ -519,8 +456,7 @@ elif main_page == "今日推荐":
                 if not picks.empty:
                     for i, (_, row) in enumerate(picks.iterrows()):
                         stars = 5 if i == 0 else 4 if i == 1 else 3
-                        st.write(generate_stock_card(row, i, stars,
-                                                      "极度推荐" if stars >= 5 else "一般推荐" if stars >= 4 else "保持关注"))
+                        st.write(generate_stock_card(row, i, stars, "极度推荐" if stars>=5 else "一般推荐" if stars>=4 else "保持关注"))
                 else:
                     st.info("今日无符合条件的涨停优选标的。")
         with tab2:
@@ -561,7 +497,8 @@ elif main_page == "今日推荐":
                                 delta = f"盈亏{chg:+.2f}%"
                             ca.write(f"{s['名称']}({c})")
                             cb.write(f"{s['最新价']}元 {s['涨跌幅']}% {delta}")
-                            if cd.button("诊断", key=f"diag_{c}"): st.write(holding_diagnosis(s, info.get("buy_price", 0)))
+                            if cd.button("诊断", key=f"diag_{c}"):
+                                st.write(holding_diagnosis(s, info.get("buy_price", 0)))
                         else:
                             ca.write(c)
                             cb.write("行情未找到")
@@ -587,12 +524,17 @@ elif main_page == "AI智能分析":
         st.session_state.pending_prompt = None
     else:
         prompt = st.chat_input("输入问题（如：分析大唐发电 / 热点推荐 / 中线价值）")
-    if st.button("清除聊天记录"): st.session_state.chat_history = []; st.rerun()
+    if st.button("清除聊天记录"):
+        st.session_state.chat_history = []
+        st.rerun()
     display_count = 5 if not st.session_state.get('show_all_chat', False) else len(st.session_state.chat_history)
     for msg in st.session_state.chat_history[-display_count:]:
-        with st.chat_message(msg["role"]): st.write(msg["content"])
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
     if len(st.session_state.chat_history) > 5 and not st.session_state.get('show_all_chat', False):
-        if st.button("展开全部对话"): st.session_state.show_all_chat = True; st.rerun()
+        if st.button("展开全部对话"):
+            st.session_state.show_all_chat = True
+            st.rerun()
     if prompt:
         st.session_state.chat_history.append({"role": "user", "content": prompt})
         if market.empty:
@@ -604,51 +546,108 @@ elif main_page == "AI智能分析":
                 reply = f"## {s.get('名称','')}({s.get('代码','')}) 深度分析\n\n"
                 reply += f"最新价：{s.get('最新价','')} | 涨跌：{s.get('涨跌幅','')}% | PE：{s.get('市盈率','')} | 换手：{s.get('换手率','')}%\n\n"
                 reply += "### 六位AI分析师综合诊断\n"
-                for role, rpt in analyst_report(s).items(): reply += f"**{role}**：{rpt}\n\n"
+                for role, rpt in analyst_report(s).items():
+                    reply += f"**{role}**：{rpt}\n\n"
                 patterns = detect_kline_patterns(pd.DataFrame([s]))
-                if patterns: reply += f"### 技术形态识别\n{'、'.join(patterns)}\n\n"
+                if patterns:
+                    reply += f"### 技术形态识别\n{'、'.join(patterns)}\n\n"
                 price = s.get("最新价", 0)
                 if price > 0:
                     atr = price * 0.03
-                    reply += f"**短线止损**：{round(price - atr * 1.5, 2)}元 | **短线止盈**：{round(price + atr * 2, 2)}元\n"
+                    reply += f"**短线止损**：{round(price-atr*1.5,2)}元 | **短线止盈**：{round(price+atr*2,2)}元\n"
                 reply += "\n⚠️ 不构成投资建议。"
             elif intent in ["today_rec", "hot", "shortline"]:
                 picks = today_top_picks(market, flows, "all")
                 if not picks.empty:
                     reply = "## 🔥 热点推荐（综合短线+近期热点+中线价值）\n\n"
-                    if flows: reply += "**今日热门板块**：" + "、".join([f["板块"] for f in flows[:3]]) + "\n\n"
-                    for i, (_, row) in enumerate(picks.iterrows()): reply += generate_stock_card(row, i, 4 if i == 0 else 3,
-                                                                                                 "综合推荐")
+                    if flows:
+                        reply += "**今日热门板块**：" + "、".join([f["板块"] for f in flows[:3]]) + "\n\n"
+                    for i, (_, row) in enumerate(picks.iterrows()):
+                        reply += generate_stock_card(row, i, 4 if i==0 else 3, "综合推荐")
                 else:
                     reply = "当前无符合综合评分条件的股票。"
             elif intent == "midline":
                 garp = garp_filter(market, fin_data)
                 if not garp.empty:
                     reply = "## 中线价值推荐（GARP筛选+估值低位）\n\n"
-                    for i, (_, row) in enumerate(garp.head(3).iterrows()): reply += generate_stock_card(row, i, 3, "中线价值")
+                    for i, (_, row) in enumerate(garp.head(3).iterrows()):
+                        reply += generate_stock_card(row, i, 3, "中线价值")
                 else:
                     reply = "当前无满足GARP条件的中线标的。"
             elif intent == "market":
                 up = int((market["涨跌幅"] > 0).sum())
                 down = int((market["涨跌幅"] < 0).sum())
                 reply = f"## 📊 今日市场概览\n\n上涨{up}家，下跌{down}家 | 情绪：{sentiment}\n\n"
-                if flows: reply += "### 主力净流入前三板块\n" + "\n".join(
-                    [f"• {f['板块']}：{f['主力净流入(亿)']}亿" for f in flows[:3]])
+                if flows:
+                    reply += "### 主力净流入前三板块\n" + "\n".join([f"• {f['板块']}：{f['主力净流入(亿)']}亿" for f in flows[:3]])
             elif intent == "monster":
                 m = monster_stocks(market)
                 if not m.empty:
                     reply = f"## 🦅 妖股雷达（{len(m)}只候选）\n\n"
-                    for _, row in m.head(5).iterrows(): reply += f"• **{row['名称']}({row['代码']})** 涨幅{row['涨跌幅']}% 换手{row['换手率']}%\n"
+                    for _, row in m.head(5).iterrows():
+                        reply += f"• **{row['名称']}({row['代码']})** 涨幅{row['涨跌幅']}% 换手{row['换手率']}%\n"
+                    reply += "\n⚠️ 妖股高风险高波动，严格止损。"
+                else:
+                    reply = "当前无妖股候选。"
+           "
+        else:
+            intent, stock = ai_understand(prompt, market)
+            if intent == "stock_query" and stock:
+                s = stock
+                reply = f"## {s.get('名称','')}({s.get('代码','')}) 深度分析\n\n"
+                reply += f"最新价：{s.get('最新价','')} | 涨跌：{s.get('涨跌幅','')}% | PE：{s.get('市盈率','')} | 换手：{s.get('换手率','')}%\n\n"
+                reply += "### 六位AI分析师综合诊断\n"
+                for role, rpt in analyst_report(s).items():
+                    reply += f"**{role}**：{rpt}\n\n"
+                patterns = detect_kline_patterns(pd.DataFrame([s]))
+                if patterns:
+                    reply += f"### 技术形态识别\n{'、'.join(patterns)}\n\n"
+                price = s.get("最新价", 0)
+                if price > 0:
+                    atr = price * 0.03
+                    reply += f"**短线止损**：{round(price-atr*1.5,2)}元 | **短线止盈**：{round(price+atr*2,2)}元\n"
+                reply += "\n⚠️ 不构成投资建议。"
+            elif intent in ["today_rec", "hot", "shortline"]:
+                picks = today_top_picks(market, flows, "all")
+                if not picks.empty:
+                    reply = "## 🔥 热点推荐（综合短线+近期热点+中线价值）\n\n"
+                    if flows:
+                        reply += "**今日热门板块**：" + "、".join([f["板块"] for f in flows[:3]]) + "\n\n"
+                    for i, (_, row) in enumerate(picks.iterrows()):
+                        reply += generate_stock_card(row, i, 4 if i==0 else 3, "综合推荐")
+                else:
+                    reply = "当前无符合综合评分条件的股票。"
+            elif intent == "midline":
+                garp = garp_filter(market, fin_data)
+                if not garp.empty:
+                    reply = "## 中线价值推荐（GARP筛选+估值低位）\n\n"
+                    for i, (_, row) in enumerate(garp.head(3).iterrows()):
+                        reply += generate_stock_card(row, i, 3, "中线价值")
+                else:
+                    reply = "当前无满足GARP条件的中线标的。"
+            elif intent == "market":
+                up = int((market["涨跌幅"] > 0).sum())
+                down = int((market["涨跌幅"] < 0).sum())
+                reply = f"## 📊 今日市场概览\n\n上涨{up}家，下跌{down}家 | 情绪：{sentiment}\n\n"
+                if flows:
+                    reply += "### 主力净流入前三板块\n" + "\n".join([f"• {f['板块']}：{f['主力净流入(亿)']}亿" for f in flows[:3]])
+            elif intent == "monster":
+                m = monster_stocks(market)
+                if not m.empty:
+                    reply = f"## 🦅 妖股雷达（{len(m)}只候选）\n\n"
+                    for _, row in m.head(5).iterrows():
+                        reply += f"• **{row['名称']}({row['代码']})** 涨幅{row['涨跌幅']}% 换手{row['换手率']}%\n"
                     reply += "\n⚠️ 妖股高风险高波动，严格止损。"
                 else:
                     reply = "当前无妖股候选。"
             elif intent == "review":
-                reply = f"## 📝 今日复盘\n\n上涨{int((market['涨跌幅'] > 0).sum())}家，下跌{int((market['涨跌幅'] < 0).sum())}家 | 情绪：{sentiment}\n"
+                reply = f"## 📝 今日复盘\n\n上涨{int((market['涨跌幅']>0).sum())}家，下跌{int((market['涨跌幅']<0).sum())}家 | 情绪：{sentiment}\n"
                 if st.session_state.holdings:
                     reply += "\n### 持仓表现\n"
                     for c, info in st.session_state.holdings.items():
                         mh = market[market["代码"] == c]
-                        if not mh.empty: reply += f"• {mh.iloc[0]['名称']}：{mh.iloc[0]['涨跌幅']}%\n"
+                        if not mh.empty:
+                            reply += f"• {mh.iloc[0]['名称']}：{mh.iloc[0]['涨跌幅']}%\n"
             else:
                 reply = "我是您的AI选股助手。您可以说：\n• 热点推荐\n• 分析大唐发电\n• 中线价值\n• 有什么妖股\n• 帮我复盘"
         st.session_state.chat_history.append({"role": "assistant", "content": reply})
@@ -661,5 +660,5 @@ st.sidebar.caption(f"行情数据：{'✅ 正常' if not market.empty else '❌ 
 st.sidebar.caption(f"资金数据：{'✅ 正常' if flows else '❌ 获取失败'}")
 st.sidebar.caption(f"新闻数据：{'✅ 正常' if get_news() else '❌ 获取失败'}")
 st.sidebar.caption(f"开盘状态：{'🟢 交易中' if market_open else '🔴 休市'}")
-st.sidebar.caption("数据源：腾讯财经主源 / 东方财富备源")
+st.sidebar.caption("数据源：AkShare主通道 / 腾讯财经备通道")
 st.sidebar.error("风险声明：仅基于公开数据客观筛选，不构成投资建议。")
