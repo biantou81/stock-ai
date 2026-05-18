@@ -6,23 +6,11 @@ AI智能选股系统 · 终极完整版
 import streamlit as st
 import pandas as pd
 import requests
-def get_beijing_time():
-    try:
-        resp = requests.get('http://worldtimeapi.org/api/timezone/Asia/Shanghai', timeout=5)
-        if resp.status_code == 200:
-            data = resp.json()
-            return datetime.fromisoformat(data['datetime'])
-    except:
-        pass
-    return datetime.now() + timedelta(hours=8)
 import time
 import random
 import numpy as np
 from datetime import datetime, timedelta
 import os
-
-os.environ['TZ'] = 'Asia/Shanghai'
-time.tzset()
 
 st.set_page_config(page_title="AI选股·全能版", page_icon="📈", layout="wide")
 
@@ -35,6 +23,16 @@ for key, default in {
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
+
+def get_beijing_time():
+    try:
+        resp = requests.get('http://worldtimeapi.org/api/timezone/Asia/Shanghai', timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            return datetime.fromisoformat(data['datetime'])
+    except:
+        pass
+    return datetime.now() + timedelta(hours=8)
 
 def is_market_open():
     now = get_beijing_time()
@@ -64,54 +62,30 @@ def load_market_data():
             time.sleep(random.uniform(0.3, 0.8))
         except:
             continue
-if not stocks:
-    try:
-        # 备用源：东方财富实时接口 (盘中优先)
-        url = "https://push2.eastmoney.com/api/qt/clist/get"
-        params = {
-            "pn":"1","pz":"5000","po":"1","np":"1",
-            "fltt":"2","invt":"2","fid":"f3",
-            "fs":"m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
-            "fields":"f2,f3,f9,f12,f14,f20,f23,f8"
-        }
-        headers = {"User-Agent":"Mozilla/5.0","Referer":"https://data.eastmoney.com/"}
-        r = requests.get(url, params=params, headers=headers, timeout=15)
-        data = r.json()
-        stocks_raw = data.get("data", {}).get("diff", [])
-        
-        # 关键检查点：如果拉取的数据少于1000条，说明接口降级了
-        if len(stocks_raw) < 1000:
-            raise Exception("Insufficient data, trying fallback")
-            
-        for s in stocks_raw:
-            stocks.append({...}) # 此处的代码复制原样
-    except:
-        # 新增：盘后专用全量接口
+    if not stocks:
         try:
             url = "https://push2.eastmoney.com/api/qt/clist/get"
-            params = {
-                "pn":"1","pz":"6000","po":"1","np":"1",
-                "fltt":"2","invt":"2",
-                "fs":"m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
-                "fields":"f2,f3,f9,f12,f14,f15,f16,f17,f18,f20,f23,f8"
-            }
-            headers = {"User-Agent":"Mozilla/5.0"}
+            params = {"pn":"1","pz":"5000","po":"1","np":"1","fltt":"2","invt":"2","fid":"f3","fs":"m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23","fields":"f2,f3,f9,f12,f14,f20,f23,f8"}
+            headers = {"User-Agent":"Mozilla/5.0","Referer":"https://data.eastmoney.com/"}
             r = requests.get(url, params=params, headers=headers, timeout=15)
             data = r.json()
-            stocks_raw = data.get("data", {}).get("diff", [])
+            stocks_raw = data.get("data",{}).get("diff",[])
+            if len(stocks_raw) < 1000:
+                raise Exception("Insufficient data")
             for s in stocks_raw:
-                stocks.append({
-                    "symbol": s.get("f12", ""),
-                    "name": s.get("f14", ""),
-                    "trade": s.get("f2", 0),
-                    "changepercent": s.get("f3", 0),
-                    "per": s.get("f9", 0),
-                    "pb": s.get("f23", 0),
-                    "turnoverratio": s.get("f8", 0),
-                    "amount": s.get("f20", 0)
-                })
-    except:
-        pass
+                stocks.append({"symbol":s.get("f12",""),"name":s.get("f14",""),"trade":s.get("f2",0),"changepercent":s.get("f3",0),"per":s.get("f9",0),"pb":s.get("f23",0),"turnoverratio":s.get("f8",0),"amount":s.get("f20",0)})
+        except:
+            try:
+                url = "https://push2.eastmoney.com/api/qt/clist/get"
+                params = {"pn":"1","pz":"6000","po":"1","np":"1","fltt":"2","invt":"2","fs":"m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23","fields":"f2,f3,f9,f12,f14,f15,f16,f17,f18,f20,f23,f8"}
+                headers = {"User-Agent":"Mozilla/5.0"}
+                r = requests.get(url, params=params, headers=headers, timeout=15)
+                data = r.json()
+                stocks_raw = data.get("data",{}).get("diff",[])
+                for s in stocks_raw:
+                    stocks.append({"symbol":s.get("f12",""),"name":s.get("f14",""),"trade":s.get("f2",0),"changepercent":s.get("f3",0),"per":s.get("f9",0),"pb":s.get("f23",0),"turnoverratio":s.get("f8",0),"amount":s.get("f20",0)})
+            except:
+                pass
     return stocks
 
 def process_market(raw):
