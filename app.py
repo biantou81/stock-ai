@@ -589,57 +589,6 @@ elif main_page == "AI智能分析":
                     reply += "\n⚠️ 妖股高风险高波动，严格止损。"
                 else:
                     reply = "当前无妖股候选。"
-           "
-        else:
-            intent, stock = ai_understand(prompt, market)
-            if intent == "stock_query" and stock:
-                s = stock
-                reply = f"## {s.get('名称','')}({s.get('代码','')}) 深度分析\n\n"
-                reply += f"最新价：{s.get('最新价','')} | 涨跌：{s.get('涨跌幅','')}% | PE：{s.get('市盈率','')} | 换手：{s.get('换手率','')}%\n\n"
-                reply += "### 六位AI分析师综合诊断\n"
-                for role, rpt in analyst_report(s).items():
-                    reply += f"**{role}**：{rpt}\n\n"
-                patterns = detect_kline_patterns(pd.DataFrame([s]))
-                if patterns:
-                    reply += f"### 技术形态识别\n{'、'.join(patterns)}\n\n"
-                price = s.get("最新价", 0)
-                if price > 0:
-                    atr = price * 0.03
-                    reply += f"**短线止损**：{round(price-atr*1.5,2)}元 | **短线止盈**：{round(price+atr*2,2)}元\n"
-                reply += "\n⚠️ 不构成投资建议。"
-            elif intent in ["today_rec", "hot", "shortline"]:
-                picks = today_top_picks(market, flows, "all")
-                if not picks.empty:
-                    reply = "## 🔥 热点推荐（综合短线+近期热点+中线价值）\n\n"
-                    if flows:
-                        reply += "**今日热门板块**：" + "、".join([f["板块"] for f in flows[:3]]) + "\n\n"
-                    for i, (_, row) in enumerate(picks.iterrows()):
-                        reply += generate_stock_card(row, i, 4 if i==0 else 3, "综合推荐")
-                else:
-                    reply = "当前无符合综合评分条件的股票。"
-            elif intent == "midline":
-                garp = garp_filter(market, fin_data)
-                if not garp.empty:
-                    reply = "## 中线价值推荐（GARP筛选+估值低位）\n\n"
-                    for i, (_, row) in enumerate(garp.head(3).iterrows()):
-                        reply += generate_stock_card(row, i, 3, "中线价值")
-                else:
-                    reply = "当前无满足GARP条件的中线标的。"
-            elif intent == "market":
-                up = int((market["涨跌幅"] > 0).sum())
-                down = int((market["涨跌幅"] < 0).sum())
-                reply = f"## 📊 今日市场概览\n\n上涨{up}家，下跌{down}家 | 情绪：{sentiment}\n\n"
-                if flows:
-                    reply += "### 主力净流入前三板块\n" + "\n".join([f"• {f['板块']}：{f['主力净流入(亿)']}亿" for f in flows[:3]])
-            elif intent == "monster":
-                m = monster_stocks(market)
-                if not m.empty:
-                    reply = f"## 🦅 妖股雷达（{len(m)}只候选）\n\n"
-                    for _, row in m.head(5).iterrows():
-                        reply += f"• **{row['名称']}({row['代码']})** 涨幅{row['涨跌幅']}% 换手{row['换手率']}%\n"
-                    reply += "\n⚠️ 妖股高风险高波动，严格止损。"
-                else:
-                    reply = "当前无妖股候选。"
             elif intent == "review":
                 reply = f"## 📝 今日复盘\n\n上涨{int((market['涨跌幅']>0).sum())}家，下跌{int((market['涨跌幅']<0).sum())}家 | 情绪：{sentiment}\n"
                 if st.session_state.holdings:
