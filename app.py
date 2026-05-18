@@ -65,7 +65,7 @@ def load_market_data():
         except:
             continue
     if not stocks:
-    try:
+        try:
         # 备用源：东方财富实时接口 (盘中优先)
         url = "https://push2.eastmoney.com/api/qt/clist/get"
         params = {
