@@ -10,7 +10,9 @@ import time
 import random
 import numpy as np
 from datetime import datetime
-
+import os
+os.environ['TZ'] = 'Asia/Shanghai'
+time.tzset()
 st.set_page_config(page_title="AI选股·全能版", page_icon="📈", layout="wide")
 
 for key, default in {
