@@ -1,6 +1,6 @@
 """
 AI智能选股系统 · 最终稳定版
-通达信pytdx主通道 | 腾讯财经备通道 | 六位AI分析师 | 三层筛选架构
+mootdx主通道 | TickFlow备通道 | 六位AI分析师 | 三层筛选架构
 """
 import streamlit as st
 import pandas as pd
@@ -47,66 +47,65 @@ def is_market_open():
 def load_market_data():
     all_stocks = []
 
-    # 主通道：通达信 pytdx（TCP直连，稳定，免费）
+    # 主通道：mootdx（自动选最优IP，稳定，免费）
     try:
-        from pytdx.hq import TdxHq
-        from pytdx.util.best_ip import select_best_ip
-        best_ip = select_best_ip()
-        if best_ip:
-            api = TdxHq()
-            if api.connect(best_ip['ip'], best_ip['port']):
-                stocks = api.get_security_list(0, 0)
-                if stocks and len(stocks) > 1000:
-                    count = min(len(stocks), 100)
-                    for i in range(0, len(stocks), count):
-                        batch = stocks[i:i+count]
-                        quotes = api.get_security_quotes([(s['code'], s['market']) for s in batch])
-                        if quotes:
-                            for q in quotes:
-                                if q and q.get('code') and q.get('price', 0) > 0:
-                                    pe = float(q.get('pe', 0) or 0)
-                                    if pe <= 0:
-                                        pe = 999
-                                    all_stocks.append({
-                                        "代码": str(q['code']),
-                                        "名称": str(q.get('name', '')),
-                                        "最新价": float(q.get('price', 0)),
-                                        "涨跌幅": float(q.get('pct_chg', 0) or 0),
-                                        "市盈率": pe,
-                                        "换手率": float(q.get('turnover', 0) or 0),
-                                        "成交额": float(q.get('amount', 0) or 0),
-                                        "市净率": float(q.get('pb', 0) or 0)
-                                    })
-                        time.sleep(random.uniform(0.1, 0.3))
-                api.disconnect()
+        from mootdx.quotes import Quotes
+        client = Quotes.factory(market='std', bestip=True, timeout=10)
+        
+        # 获取深圳和上海全部股票列表，每批50只批量取行情
+        stocks_sz = client.stocks(market=0)
+        stocks_sh = client.stocks(market=1)
+        all_codes = stocks_sz + stocks_sh
+        
+        for i in range(0, len(all_codes), 50):
+            batch = all_codes[i:i+50]
+            codes = [(s['code'], s['market']) for s in batch]
+            quotes = client.quotes(symbols=codes)
+            if quotes:
+                for q in quotes:
+                    try:
+                        pe = float(q.get('pe', 0) or 0)
+                        if pe <= 0:
+                            pe = 999
+                        all_stocks.append({
+                            "代码": str(q.get('code', '')),
+                            "名称": str(q.get('name', '')),
+                            "最新价": float(q.get('price', 0) or 0),
+                            "涨跌幅": float(q.get('pct_chg', 0) or 0),
+                            "市盈率": pe,
+                            "换手率": float(q.get('turnover', 0) or 0),
+                            "成交额": float(q.get('amount', 0) or 0),
+                            "市净率": float(q.get('pb', 0) or 0)
+                        })
+                    except:
+                        continue
+            time.sleep(random.uniform(0.1, 0.3))
+        
         if len(all_stocks) > 1000:
             return pd.DataFrame(all_stocks)
     except:
         pass
 
-    # 备通道：腾讯财经
+    # 备通道：TickFlow（免费日K线数据，作为兜底）
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                   'Referer': 'https://gu.qq.com/'}
-        r = requests.get('http://qt.gtimg.cn/q=r_hs_a', headers=headers, timeout=20)
-        r.encoding = 'gbk'
-        matches = re.findall(r'v_(s[hz]\d+)="([^"]*)"', r.text)
-        for code, data in matches:
-            parts = data.split('~')
-            if len(parts) >= 40:
+        from tickflow import TickFlow
+        tf = TickFlow.free()
+        df = tf.daily(ts_code='all', trade_date=get_beijing_time().strftime('%Y%m%d'))
+        if df is not None and len(df) > 1000:
+            for _, row in df.iterrows():
                 try:
-                    pe = float(parts[39]) if parts[39] else 999
+                    pe = float(row.get('pe', 0) or 0)
                     if pe <= 0:
                         pe = 999
                     all_stocks.append({
-                        "代码": code,
-                        "名称": parts[1],
-                        "最新价": float(parts[3]) if parts[3] else 0,
-                        "涨跌幅": float(parts[32]) if parts[32] else 0,
+                        "代码": str(row.get('ts_code', '')).split('.')[0],
+                        "名称": str(row.get('name', '')),
+                        "最新价": float(row.get('close', 0) or 0),
+                        "涨跌幅": float(row.get('pct_chg', 0) or 0),
                         "市盈率": pe,
-                        "换手率": float(parts[38]) if parts[38] else 0,
-                        "成交额": float(parts[37]) if parts[37] else 0,
-                        "市净率": 0
+                        "换手率": float(row.get('turnover_rate', 0) or 0),
+                        "成交额": float(row.get('amount', 0) or 0),
+                        "市净率": float(row.get('pb', 0) or 0)
                     })
                 except:
                     continue
@@ -626,5 +625,5 @@ st.sidebar.caption(f"行情数据：{'✅ 正常' if not market.empty else '❌ 
 st.sidebar.caption(f"资金数据：{'✅ 正常' if flows else '❌ 获取失败'}")
 st.sidebar.caption(f"新闻数据：{'✅ 正常' if get_news() else '❌ 获取失败'}")
 st.sidebar.caption(f"开盘状态：{'🟢 交易中' if market_open else '🔴 休市'}")
-st.sidebar.caption("数据源：通达信pytdx主通道 / 腾讯财经备通道")
+st.sidebar.caption("数据源：mootdx主通道 / TickFlow备通道")
 st.sidebar.error("风险声明：仅基于公开数据客观筛选，不构成投资建议。")
