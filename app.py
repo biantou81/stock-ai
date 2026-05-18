@@ -6,6 +6,15 @@ AI智能选股系统 · 终极完整版
 import streamlit as st
 import pandas as pd
 import requests
+def get_beijing_time():
+    try:
+        resp = requests.get('http://worldtimeapi.org/api/timezone/Asia/Shanghai', timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            return datetime.fromisoformat(data['datetime'])
+    except:
+        pass
+    return datetime.now() + timedelta(hours=8)
 import time
 import random
 import numpy as np
@@ -28,7 +37,7 @@ for key, default in {
         st.session_state[key] = default
 
 def is_market_open():
-    now = datetime.now()
+    now = get_beijing_time()
     if now.weekday() >= 5:
         return False
     if now.hour < 9 or (now.hour == 9 and now.minute < 30):
@@ -595,7 +604,7 @@ elif main_page == "AI智能分析":
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("系统诊断")
-st.sidebar.caption(f"服务器时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.sidebar.caption(f"北京时间：{get_beijing_time().strftime('%Y-%m-%d %H:%M:%S')}")
 st.sidebar.caption(f"行情数据：{'✅ 正常' if not market.empty else '❌ 获取失败'} (共{len(market)}条)")
 st.sidebar.caption(f"资金数据：{'✅ 正常' if flows else '❌ 获取失败'}")
 st.sidebar.caption(f"新闻数据：{'✅ 正常' if get_news() else '❌ 获取失败'}")
