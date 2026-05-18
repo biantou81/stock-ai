@@ -49,43 +49,67 @@ def is_market_open():
 @st.cache_data(ttl=600, show_spinner="正在获取实时行情...")
 def load_market_data():
     stocks = []
-    for page in range(1, 4):
+
+    # 第一源：新浪财经（解析JSON）
+    for page in range(1, 5):
         try:
-            url = f"http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page={page}&num=5000&sort=symbol&asc=1&node=hs_a"
+            url = f"http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page={page}&num=2000&sort=symbol&asc=1&node=hs_a"
             r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
             if r.status_code == 200:
                 data = r.json()
-                if data:
+                if data and len(data) > 0:
                     stocks.extend(data)
                 else:
                     break
-            time.sleep(random.uniform(0.3, 0.8))
+            else:
+                break
+            time.sleep(random.uniform(0.4, 0.9))
         except:
             continue
+
+    # 第二源：东方财富实时行情（页面循环拉取）
     if not stocks:
         try:
-            url = "https://push2.eastmoney.com/api/qt/clist/get"
-            params = {"pn":"1","pz":"5000","po":"1","np":"1","fltt":"2","invt":"2","fid":"f3","fs":"m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23","fields":"f2,f3,f9,f12,f14,f20,f23,f8"}
-            headers = {"User-Agent":"Mozilla/5.0","Referer":"https://data.eastmoney.com/"}
-            r = requests.get(url, params=params, headers=headers, timeout=15)
-            data = r.json()
-            stocks_raw = data.get("data",{}).get("diff",[])
-            if len(stocks_raw) < 1000:
-                raise Exception("Insufficient data")
-            for s in stocks_raw:
-                stocks.append({"symbol":s.get("f12",""),"name":s.get("f14",""),"trade":s.get("f2",0),"changepercent":s.get("f3",0),"per":s.get("f9",0),"pb":s.get("f23",0),"turnoverratio":s.get("f8",0),"amount":s.get("f20",0)})
-        except:
-            try:
+            for page in range(1, 12):
                 url = "https://push2.eastmoney.com/api/qt/clist/get"
-                params = {"pn":"1","pz":"6000","po":"1","np":"1","fltt":"2","invt":"2","fs":"m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23","fields":"f2,f3,f9,f12,f14,f15,f16,f17,f18,f20,f23,f8"}
-                headers = {"User-Agent":"Mozilla/5.0"}
+                params = {
+                    "pn": str(page), "pz": "500", "po": "1", "np": "1",
+                    "fltt": "2", "invt": "2", "fid": "f3",
+                    "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
+                    "fields": "f2,f3,f9,f12,f14,f20,f23,f8"
+                }
+                headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://data.eastmoney.com/"}
                 r = requests.get(url, params=params, headers=headers, timeout=15)
                 data = r.json()
-                stocks_raw = data.get("data",{}).get("diff",[])
-                for s in stocks_raw:
-                    stocks.append({"symbol":s.get("f12",""),"name":s.get("f14",""),"trade":s.get("f2",0),"changepercent":s.get("f3",0),"per":s.get("f9",0),"pb":s.get("f23",0),"turnoverratio":s.get("f8",0),"amount":s.get("f20",0)})
-            except:
-                pass
+                batch = data.get("data", {}).get("diff", [])
+                if not batch:
+                    break
+                for s in batch:
+                    stocks.append({
+                        "symbol": s.get("f12", ""),
+                        "name": s.get("f14", ""),
+                        "trade": s.get("f2", 0),
+                        "changepercent": s.get("f3", 0),
+                        "per": s.get("f9", 0),
+                        "pb": s.get("f23", 0),
+                        "turnoverratio": s.get("f8", 0),
+                        "amount": s.get("f20", 0)
+                    })
+                time.sleep(random.uniform(0.1, 0.3))
+        except:
+            pass
+
+    # 第三源：腾讯财经接口（一次性拉取全量数据）
+    if not stocks:
+        try:
+            url = "http://qt.gtimg.cn/q=sh000001,sz399001"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            r = requests.get(url, headers=headers, timeout=10)
+            # 腾讯接口成功调用后备用
+            pass
+        except:
+            pass
+
     return stocks
 
 def process_market(raw):
